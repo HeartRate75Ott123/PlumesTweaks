@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "plumestweaks:item/temp_respawn_point"
+  }
+}

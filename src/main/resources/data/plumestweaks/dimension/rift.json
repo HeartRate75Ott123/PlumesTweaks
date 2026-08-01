@@ -1,0 +1,10 @@
+{
+  "type": "plumestweaks:rift",
+  "generator": {
+    "type": "plumestweaks:rift",
+    "biome_source": {
+      "type": "minecraft:fixed",
+      "biome": "plumestweaks:rift_island"
+    }
+  }
+}

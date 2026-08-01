@@ -1,0 +1,23 @@
+{
+  "required": true,
+  "package": "com.plumestweaks.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "ExplorersCompassPlayerUtilsMixin",
+    "NaturesCompassPlayerUtilsMixin",
+    "AbstractHorseMixin",
+    "FoodDataAccessor",
+    "ServerPlayerRespawnMixin",
+    "FastMoveStaminaMixin",
+    "PlayerHorseMixin",
+    "PlayerMountProtectionMixin",
+    "SlideFallProtectionMixin",
+    "RiftTimeSyncMixin"
+  ],
+  "client": [
+    "LocalPlayerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
