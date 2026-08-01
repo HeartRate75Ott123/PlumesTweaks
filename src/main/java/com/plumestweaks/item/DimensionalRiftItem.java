@@ -61,9 +61,13 @@ public class DimensionalRiftItem extends Item {
         PlumesTweaks.LOGGER.info("[DimensionalRift] use() called by {} in dim {}",
                 player.getName().getString(), level.dimension().location());
 
-        // ========== 1. 冷却检测 ==========
+        // ========== 1. 判断当前维度决定行为 ==========
+        ResourceKey<Level> currentDim = serverPlayer.level().dimension();
+        boolean inRiftDim = currentDim.equals(PlumesDimensions.riftLevelKey());
+
+        // ========== 2. 冷却检测（仅在非裂隙维度生效，防止裂隙内误触发冷却） ==========
         CooldownData cooldown = stack.get(ModDataComponents.RIFT_COOLDOWN.get());
-        if (cooldown != null && cooldown.remainingTicks(level.getGameTime()) > 0) {
+        if (!inRiftDim && cooldown != null && cooldown.remainingTicks(level.getGameTime()) > 0) {
             long remaining = cooldown.remainingTicks(level.getGameTime());
             int seconds = (int) ((remaining + 19) / 20);
             PlumesTweaks.LOGGER.debug("[DimensionalRift] cooldown active: {}s remaining", seconds);
@@ -72,31 +76,25 @@ public class DimensionalRiftItem extends Item {
             return InteractionResultHolder.consume(stack);
         }
 
-        // ========== 2. 从物品 CustomData 读取位置数据 ==========
+        // ========== 3. 从物品 CustomData 读取位置数据 ==========
         CompoundTag data = readRiftData(stack);
 
-        if (data.isEmpty()) {
-            // ---- 首次使用（或数据已清空）：绑定 + 传送空岛 ----
-            PlumesTweaks.LOGGER.info("[DimensionalRift] no rift data found → initializing for {}",
-                    player.getName().getString());
-
-            saveRiftData(stack, serverPlayer);
-            teleportToRift(serverPlayer);
-
-            serverPlayer.sendSystemMessage(
-                    Component.translatable("item.plumestweaks.dimensional_rift.bind",
-                            player.getName().getString()), true);
-            return InteractionResultHolder.consume(stack);
-        }
-
-        // ---- 已有存储数据 ----
-        ResourceKey<Level> currentDim = serverPlayer.level().dimension();
-
-        if (currentDim.equals(PlumesDimensions.riftLevelKey())) {
-            // === 在空岛中：返回原维度 ===
-            PlumesTweaks.LOGGER.info("[DimensionalRift] player in rift → returning to original dimension");
-            restoreLocation(serverPlayer, data);
-            clearRiftData(stack);
+        if (inRiftDim) {
+            // === 在空岛维度：返回原维度 ===
+            if (data.isEmpty()) {
+                // 异常情况：在裂隙维度但物品无数据 → 强制回主世界出生点
+                PlumesTweaks.LOGGER.warn("[DimensionalRift] player in rift but no data found → fallback to overworld spawn");
+                ServerLevel overworld = serverPlayer.getServer().getLevel(Level.OVERWORLD);
+                if (overworld != null) {
+                    BlockPos spawn = overworld.getSharedSpawnPos();
+                    serverPlayer.teleportTo(overworld, spawn.getX() + 0.5, spawn.getY(), spawn.getZ() + 0.5, 0, 0);
+                }
+                clearRiftData(stack);
+            } else {
+                PlumesTweaks.LOGGER.info("[DimensionalRift] player in rift → returning to original dimension");
+                restoreLocation(serverPlayer, data);
+                clearRiftData(stack);
+            }
 
             // 启动冷却
             stack.set(ModDataComponents.RIFT_COOLDOWN.get(),
@@ -107,10 +105,23 @@ public class DimensionalRiftItem extends Item {
             serverPlayer.sendSystemMessage(
                     Component.translatable("item.plumestweaks.dimensional_rift.return"), true);
         } else {
-            // === 在其他维度：更新位置再传送到空岛 ===
-            PlumesTweaks.LOGGER.info("[DimensionalRift] player in overworld → saving location and entering rift");
-            saveRiftData(stack, serverPlayer);
-            teleportToRift(serverPlayer);
+            // === 在其他维度：进入空岛 ===
+            if (data.isEmpty()) {
+                // 首次使用：绑定 + 传送空岛
+                PlumesTweaks.LOGGER.info("[DimensionalRift] first use → initializing for {}",
+                        player.getName().getString());
+                saveRiftData(stack, serverPlayer);
+                teleportToRift(serverPlayer);
+
+                serverPlayer.sendSystemMessage(
+                        Component.translatable("item.plumestweaks.dimensional_rift.bind",
+                                player.getName().getString()), true);
+            } else {
+                // 已有数据：更新位置再传送到空岛（覆盖旧数据）
+                PlumesTweaks.LOGGER.info("[DimensionalRift] player in overworld → saving location and entering rift");
+                saveRiftData(stack, serverPlayer);
+                teleportToRift(serverPlayer);
+            }
         }
 
         return InteractionResultHolder.consume(stack);
