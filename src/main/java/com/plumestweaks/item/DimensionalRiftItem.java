@@ -1,8 +1,6 @@
 package com.plumestweaks.item;
 
 import com.plumestweaks.PlumesTweaks;
-import com.plumestweaks.component.CooldownData;
-import com.plumestweaks.component.ModDataComponents;
 import com.plumestweaks.dimension.PlumesDimensions;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
@@ -12,29 +10,32 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerBossEvent;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResultHolder;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.AABB;
 
+import java.lang.reflect.Field;
 import java.util.List;
 import java.util.UUID;
 
 /**
  * 时空裂隙 —— 维度传送道具。
  * <p>
- * 右击撕开裂隙进入空岛维度，再次右击返回原维度并进入冷却。
+ * 右击撕开裂隙进入空岛维度，再次右击返回原维度。
  * 返回位置数据存储在物品自身的 CustomData 中，随玩家跨维度移动。
+ * 限制：周围 32 格内有 Boss 级怪物时无法使用。
  */
 public class DimensionalRiftItem extends Item {
-
-    private static final int COOLDOWN_TICKS = 2400; // 2 分钟 = 120 秒
 
     // 物品 CustomData 键
     private static final String ITEM_TAG_RIFT = "rift_data";
@@ -42,6 +43,9 @@ public class DimensionalRiftItem extends Item {
     private static final String TAG_POS = "pos";
     private static final String TAG_YAW = "yaw";
     private static final String TAG_PITCH = "pitch";
+
+    /** Boss 检测半径 */
+    private static final double BOSS_CHECK_RADIUS = 32.0;
 
     /** 每个玩家的出生半径（平原边缘，靠近山脉） */
     private static final double RIFT_SPAWN_RADIUS = 38.0;
@@ -61,20 +65,18 @@ public class DimensionalRiftItem extends Item {
         PlumesTweaks.LOGGER.info("[DimensionalRift] use() called by {} in dim {}",
                 player.getName().getString(), level.dimension().location());
 
-        // ========== 1. 判断当前维度决定行为 ==========
-        ResourceKey<Level> currentDim = serverPlayer.level().dimension();
-        boolean inRiftDim = currentDim.equals(PlumesDimensions.riftLevelKey());
-
-        // ========== 2. 冷却检测（仅在非裂隙维度生效，防止裂隙内误触发冷却） ==========
-        CooldownData cooldown = stack.get(ModDataComponents.RIFT_COOLDOWN.get());
-        if (!inRiftDim && cooldown != null && cooldown.remainingTicks(level.getGameTime()) > 0) {
-            long remaining = cooldown.remainingTicks(level.getGameTime());
-            int seconds = (int) ((remaining + 19) / 20);
-            PlumesTweaks.LOGGER.debug("[DimensionalRift] cooldown active: {}s remaining", seconds);
+        // ========== 1. Boss 检测（两个维度通用） ==========
+        if (hasBossNearby(level, player)) {
+            PlumesTweaks.LOGGER.info("[DimensionalRift] boss nearby, blocking use for {}",
+                    player.getName().getString());
             serverPlayer.displayClientMessage(
-                    Component.translatable("item.plumestweaks.dimensional_rift.cooldown", seconds), true);
+                    Component.translatable("item.plumestweaks.dimensional_rift.boss_nearby"), true);
             return InteractionResultHolder.consume(stack);
         }
+
+        // ========== 2. 判断当前维度决定行为 ==========
+        ResourceKey<Level> currentDim = serverPlayer.level().dimension();
+        boolean inRiftDim = currentDim.equals(PlumesDimensions.riftLevelKey());
 
         // ========== 3. 从物品 CustomData 读取位置数据 ==========
         CompoundTag data = readRiftData(stack);
@@ -95,12 +97,6 @@ public class DimensionalRiftItem extends Item {
                 restoreLocation(serverPlayer, data);
                 clearRiftData(stack);
             }
-
-            // 启动冷却
-            stack.set(ModDataComponents.RIFT_COOLDOWN.get(),
-                    new CooldownData(level.getGameTime() + COOLDOWN_TICKS, COOLDOWN_TICKS));
-            PlumesTweaks.LOGGER.info("[DimensionalRift] cooldown started: {} ticks ({}s)",
-                    COOLDOWN_TICKS, COOLDOWN_TICKS / 20);
 
             serverPlayer.sendSystemMessage(
                     Component.translatable("item.plumestweaks.dimensional_rift.return"), true);
@@ -125,6 +121,28 @@ public class DimensionalRiftItem extends Item {
         }
 
         return InteractionResultHolder.consume(stack);
+    }
+
+    /**
+     * 检查指定半径内是否有 Boss 级怪物（拥有 ServerBossEvent 字段的实体）。
+     */
+    private boolean hasBossNearby(Level level, Player player) {
+        AABB box = player.getBoundingBox().inflate(BOSS_CHECK_RADIUS);
+        List<? extends Entity> entities = level.getEntitiesOfClass(Entity.class, box,
+                e -> e != player && e.isAlive() && hasBossBarField(e.getClass()));
+        return !entities.isEmpty();
+    }
+
+    private static boolean hasBossBarField(Class<?> clazz) {
+        while (clazz != null && clazz != Entity.class) {
+            for (Field field : clazz.getDeclaredFields()) {
+                if (ServerBossEvent.class.isAssignableFrom(field.getType())) {
+                    return true;
+                }
+            }
+            clazz = clazz.getSuperclass();
+        }
+        return false;
     }
 
     // ========== 物品 CustomData 存储 ==========
@@ -210,40 +228,6 @@ public class DimensionalRiftItem extends Item {
         player.teleportTo(riftLevel, x + 0.5, 129.0, z + 0.5, yaw, 0.0f);
     }
 
-    // ========== 冷却视觉条（绿色耐久条，仅客户端渲染） ==========
-
-    @Override
-    public boolean isBarVisible(ItemStack stack) {
-        CooldownData cool = stack.get(ModDataComponents.RIFT_COOLDOWN.get());
-        if (cool == null) return false;
-        try {
-            var mc = net.minecraft.client.Minecraft.getInstance();
-            return mc.level != null && cool.remainingTicks(mc.level.getGameTime()) > 0;
-        } catch (NoClassDefFoundError ignored) {
-            return true;
-        }
-    }
-
-    @Override
-    public int getBarWidth(ItemStack stack) {
-        CooldownData cool = stack.get(ModDataComponents.RIFT_COOLDOWN.get());
-        if (cool == null) return 0;
-        try {
-            var mc = net.minecraft.client.Minecraft.getInstance();
-            if (mc.level == null) return 13;
-            long remaining = cool.remainingTicks(mc.level.getGameTime());
-            if (remaining > 0) {
-                return Math.round(13.0f * (cool.duration() - remaining) / cool.duration());
-            }
-        } catch (NoClassDefFoundError ignored) {}
-        return 0;
-    }
-
-    @Override
-    public int getBarColor(ItemStack stack) {
-        return 0x44CC44; // 绿色
-    }
-
     // ========== Tooltip ==========
 
     @Override
@@ -255,20 +239,8 @@ public class DimensionalRiftItem extends Item {
         tooltipComponents.add(Component.translatable("item.plumestweaks.dimensional_rift.desc1")
                 .withStyle(ChatFormatting.GREEN));
 
-        // 第二行：冷却中 → 实时倒计时；未冷却 → 冷却说明
-        CooldownData cool = stack.get(ModDataComponents.RIFT_COOLDOWN.get());
-        if (cool != null) {
-            Level level = context.level();
-            if (level != null) {
-                long remaining = cool.remainingTicks(level.getGameTime());
-                if (remaining > 0) {
-                    int seconds = (int) ((remaining + 19) / 20);
-                    tooltipComponents.add(
-                            Component.translatable("item.plumestweaks.dimensional_rift.cooldown", seconds)
-                                    .withStyle(ChatFormatting.YELLOW));
-                    return;
-                }
-            }
-        }
+        // 第二行：Boss 限制提示
+        tooltipComponents.add(Component.translatable("item.plumestweaks.dimensional_rift.boss_limit")
+                .withStyle(ChatFormatting.RED));
     }
 }
