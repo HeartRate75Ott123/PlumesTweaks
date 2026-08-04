@@ -22,7 +22,7 @@ import java.util.List;
  * 右键激活后立即切换为观察者模式，持续 10 秒后自动恢复原游戏模式。
  * 结束前 3、2、1 秒分别发送醒目提示。
  * 恢复后获得 5 秒摔落免疫，防止身处高空时摔死。
- * 冷却时间 1 分钟，冷却样式与时空裂隙相同（耐久条 + tooltip）。
+ * 冷却时间 20 秒，冷却样式与时空裂隙相同（耐久条 + tooltip）。
  * <p>
  * 核心逻辑（计时、摔落免疫）通过 PlumesTweaks 的事件处理器管理，
  * 跨维度、重进存档均安全。
@@ -32,7 +32,7 @@ public class TeleportLenItem extends Item {
     /** 观察者模式持续时间（tick） */
     static final int SPECTATOR_DURATION = 200; // 10 秒
     /** 冷却时间（tick） */
-    static final int COOLDOWN_TICKS = 1200; // 1 分钟
+    static final int COOLDOWN_TICKS = 400; // 20 秒
 
     public TeleportLenItem() {
         super(new Properties().stacksTo(1));
