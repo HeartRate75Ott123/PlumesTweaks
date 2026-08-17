@@ -147,6 +147,13 @@ public class PlumesTweaks {
             } catch (Exception e) {
                 LOGGER.error("Failed to register client payloads", e);
             }
+        } else {
+            // 服务端必须注册 S2C 通道以完成握手；占位 handler 永不执行（服务端不接收 S2C）
+            registrar.playToClient(
+                    ClearItemsConfirmPayload.TYPE,
+                    ClearItemsConfirmPayload.STREAM_CODEC,
+                    (payload, context) -> {}
+            );
         }
     }
 
