@@ -50,6 +50,11 @@ public class DimensionalRiftItem extends Item {
     /** 每个玩家的出生半径（平原边缘，靠近山脉） */
     private static final double RIFT_SPAWN_RADIUS = 38.0;
 
+    /** 网格单元间距：与 {@link com.plumestweaks.worldgen.RiftChunkGenerator} 的 GRID 保持一致 */
+    private static final int GRID = 1024;
+    /** UUID 哈希分片位数：15 位索引 → 每轴最多 2^15 个网格单元（坐标 ±~1.6 千万，int 安全区） */
+    private static final int GRID_INDEX_BITS = 15;
+
     public DimensionalRiftItem() {
         super(new Properties().stacksTo(1));
     }
@@ -209,7 +214,19 @@ public class DimensionalRiftItem extends Item {
         player.teleportTo(targetLevel, pos[0] + 0.5, pos[1], pos[2] + 0.5, yaw, pitch);
     }
 
-    /** 传送到空岛维度（每位玩家按 UUID 分配不同角度位置） */
+    /** 由玩家 UUID 确定性计算其专属岛的网格中心世界坐标 */
+    private static int islandCenterFromUuid(UUID uuid, boolean xAxis) {
+        int hash = uuid.hashCode();
+        int idx;
+        if (xAxis) {
+            idx = (hash & 0x7FFF);            // 低 15 位
+        } else {
+            idx = (hash >>> 15) & 0x7FFF;     // 高 15 位
+        }
+        return idx * GRID;
+    }
+
+    /** 传送到空岛维度（每位玩家按 UUID 分配不同网格单元中的专属岛） */
     private static void teleportToRift(ServerPlayer player) {
         ServerLevel riftLevel = player.getServer().getLevel(PlumesDimensions.riftLevelKey());
         if (riftLevel == null) {
@@ -217,14 +234,20 @@ public class DimensionalRiftItem extends Item {
             return;
         }
 
-        // 从 UUID 哈希计算角度，每位玩家固定一个方向
-        double angle = (player.getUUID().hashCode() & 0x7FFFFFFF) / (double) 0x7FFFFFFF * Math.PI * 2;
-        double x = Math.cos(angle) * RIFT_SPAWN_RADIUS;
-        double z = Math.sin(angle) * RIFT_SPAWN_RADIUS;
+        // 每位玩家固定一个专属岛中心（由 UUID 哈希派生网格索引）
+        UUID uuid = player.getUUID();
+        int centerX = islandCenterFromUuid(uuid, true);
+        int centerZ = islandCenterFromUuid(uuid, false);
+
+        // 在岛中心附近取一个固定方向作为落点（平原边缘，靠近山脉）
+        double angle = (uuid.hashCode() & 0x7FFFFFFF) / (double) 0x7FFFFFFF * Math.PI * 2;
+        double x = centerX + Math.cos(angle) * RIFT_SPAWN_RADIUS;
+        double z = centerZ + Math.sin(angle) * RIFT_SPAWN_RADIUS;
         float yaw = (float) (Math.toDegrees(angle) + 180); // 面朝山脉方向
 
-        PlumesTweaks.LOGGER.info("[DimensionalRift] teleporting {} to rift at angle={} pos=({},129,{})",
-                player.getName().getString(), Math.toDegrees(angle), String.format("%.1f", x), String.format("%.1f", z));
+        PlumesTweaks.LOGGER.info("[DimensionalRift] teleporting {} to rift island center=({},{}) pos=({},129,{})",
+                player.getName().getString(), centerX, centerZ,
+                String.format("%.1f", x), String.format("%.1f", z));
         player.teleportTo(riftLevel, x + 0.5, 129.0, z + 0.5, yaw, 0.0f);
     }
 

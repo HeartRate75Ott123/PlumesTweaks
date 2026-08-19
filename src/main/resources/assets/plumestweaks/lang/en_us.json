@@ -26,5 +26,7 @@
   "item.plumestweaks.teleport_len.desc1": "§aRight-click to enter spectator mode",
   "item.plumestweaks.teleport_len.crash_restore": "§cAbnormal disconnect detected, state reset",
   "fml.menu.mods.info.name.plumestweaks": "Plume's Tweaks",
-  "fml.menu.mods.info.description.plumestweaks": "A mod for my modpack, containing various gameplay tweaks"
+  "fml.menu.mods.info.description.plumestweaks": "A mod for my modpack, containing various gameplay tweaks",
+  "dimension.plumestweaks.rift": "Dimensional Rift",
+  "biome.plumestweaks.rift_island": "Rift Island"
 }

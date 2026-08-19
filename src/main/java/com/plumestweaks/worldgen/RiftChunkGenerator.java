@@ -41,8 +41,31 @@ public class RiftChunkGenerator extends ChunkGenerator {
     private static final double MAX_R = 116.0;          // 绝对最大半径
     private static final int MAX_THICKNESS = PEAK_Y - PLAIN_Y + 1; // 65
 
+    /** 网格单元间距：每个玩家一个专属岛（岛直径 ~232，间距 1024） */
+    private static final int GRID = 1024;
+
     /** 采样步长（格），4 格网格 → 16x16 区块 = 5x5 采样点 */
     private static final int STEP = 4;
+
+    /**
+     * 求离指定世界坐标最近的网格单元中心，作为岛屿的局部原点。
+     * <p>
+     * 与 {@link com.plumestweaks.item.DimensionalRiftItem} 的 UUID→网格索引分配一致：
+     * 玩家专属岛中心 = 某整数倍 GRID，任意坐标经本方法都会落回同一中心。
+     */
+    private static int gridCenter(int coord) {
+        return Math.floorDiv(coord + GRID / 2, GRID) * GRID;
+    }
+
+    /** 求离指定世界坐标最近的网格单元中心 x/z */
+    private static int gridCenterX(int wx) { return gridCenter(wx); }
+    private static int gridCenterZ(int wz) { return gridCenter(wz); }
+
+    /** 指定世界坐标到其最近网格单元中心的水平距离 */
+    private static double distToNearestCenter(int wx, int wz) {
+        double dx = wx - gridCenterX(wx), dz = wz - gridCenterZ(wz);
+        return Math.sqrt(dx * dx + dz * dz);
+    }
 
     public RiftChunkGenerator(BiomeSource biomeSource,
                               Function<Holder<Biome>, BiomeGenerationSettings> genSettingsFactory) {
@@ -53,10 +76,10 @@ public class RiftChunkGenerator extends ChunkGenerator {
     public CompletableFuture<ChunkAccess> fillFromNoise(Blender blender, RandomState randomState,
                                                          StructureManager structureManager, ChunkAccess chunk) {
         int cx = chunk.getPos().x, cz = chunk.getPos().z;
-        if (Math.sqrt((cx * 16 + 8) * (cx * 16 + 8) + (cz * 16 + 8) * (cz * 16 + 8)) > MAX_R + 8)
-            return CompletableFuture.completedFuture(chunk);
-
         int ox = cx << 4, oz = cz << 4; // chunk origin in world coords
+        // 区块中心距离最近的岛中心超过最大半径即跳过（与原始 (0,0) 语义一致）
+        if (distToNearestCenter(ox + 8, oz + 8) > MAX_R + 8)
+            return CompletableFuture.completedFuture(chunk);
 
         // ---- 4 格网格采样（向上 + 向下厚度） ----
         int samplesX = 16 / STEP + 1; // 5
@@ -125,7 +148,9 @@ public class RiftChunkGenerator extends ChunkGenerator {
      *   三者通过 max() + 加法组合。
      */
     private static double rawThickness(int wx, int wz) {
-        double raw = Math.sqrt(wx * (double) wx + wz * (double) wz);
+        int cx = gridCenterX(wx), cz = gridCenterZ(wz);
+        double dx = wx - cx, dz = wz - cz;
+        double raw = Math.sqrt(dx * dx + dz * dz);
         if (raw > MAX_R) return 0;
 
         double r = raw + sinNoise2D(wx, wz, 0.02, 0.025, 3.0) * 2.0;
@@ -177,7 +202,9 @@ public class RiftChunkGenerator extends ChunkGenerator {
      * 中心强根可达 ~64 格（追平山高），向外缘平滑收敛至虚空。
      */
     private static double rawHangingThickness(int wx, int wz) {
-        double raw = Math.sqrt(wx * (double) wx + wz * (double) wz);
+        int cx = gridCenterX(wx), cz = gridCenterZ(wz);
+        double dx = wx - cx, dz = wz - cz;
+        double raw = Math.sqrt(dx * dx + dz * dz);
         if (raw > MAX_R) return 0;
 
         double r = raw + sinNoise2D(wx, wz, 0.02, 0.025, 3.0) * 2.0;

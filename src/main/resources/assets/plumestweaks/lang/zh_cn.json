@@ -26,5 +26,7 @@
   "item.plumestweaks.teleport_len.desc1": "§a右击使用，进入旁观者模式",
   "item.plumestweaks.teleport_len.crash_restore": "§c检测到上次使用异常中断，状态已重置",
   "fml.menu.mods.info.name.plumestweaks": "Plume's Tweaks",
-  "fml.menu.mods.info.description.plumestweaks": "一个为我的整合包定制的辅助模组，包含多项游戏改进"
+  "fml.menu.mods.info.description.plumestweaks": "一个为我的整合包定制的辅助模组，包含多项游戏改进",
+  "dimension.plumestweaks.rift": "时空裂隙",
+  "biome.plumestweaks.rift_island": "裂隙空岛"
 }
