@@ -2,6 +2,7 @@ package com.plumestweaks.client;
 
 import com.plumestweaks.network.ClearItemsConfirmPayload;
 import com.plumestweaks.network.ClearItemsConfirmResponsePayload;
+import com.plumestweaks.network.CompassFoundPayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.network.chat.Component;
@@ -18,6 +19,18 @@ public class ClientPayloadHandler {
                 ClearItemsConfirmPayload.STREAM_CODEC,
                 ClientPayloadHandler::handleConfirmRequest
         );
+
+        // 指南针查找到 → Xaero 路径点
+        registrar.playToClient(
+                CompassFoundPayload.TYPE,
+                CompassFoundPayload.STREAM_CODEC,
+                ClientPayloadHandler::handleCompassFound
+        );
+    }
+
+    private static void handleCompassFound(CompassFoundPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> XaeroWaypointBridge.addWaypoint(
+                payload.x(), payload.y(), payload.z(), payload.name(), payload.dimId()));
     }
 
     private static void handleConfirmRequest(ClearItemsConfirmPayload payload, IPayloadContext context) {

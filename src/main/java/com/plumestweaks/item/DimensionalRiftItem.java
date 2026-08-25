@@ -1,8 +1,12 @@
 package com.plumestweaks.item;
 
 import com.plumestweaks.PlumesTweaks;
+import com.plumestweaks.component.ModDataComponents;
+import com.plumestweaks.component.RiftEnterData;
 import com.plumestweaks.dimension.PlumesDimensions;
+import com.plumestweaks.dimension.RiftIslandAllocator;
 import net.minecraft.ChatFormatting;
+import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.Registries;
@@ -23,6 +27,8 @@ import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.fml.loading.FMLLoader;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -50,11 +56,6 @@ public class DimensionalRiftItem extends Item {
     /** 每个玩家的出生半径（平原边缘，靠近山脉） */
     private static final double RIFT_SPAWN_RADIUS = 38.0;
 
-    /** 网格单元间距：与 {@link com.plumestweaks.worldgen.RiftChunkGenerator} 的 GRID 保持一致 */
-    private static final int GRID = 1024;
-    /** UUID 哈希分片位数：15 位索引 → 每轴最多 2^15 个网格单元（坐标 ±~1.6 千万，int 安全区） */
-    private static final int GRID_INDEX_BITS = 15;
-
     public DimensionalRiftItem() {
         super(new Properties().stacksTo(1));
     }
@@ -70,7 +71,20 @@ public class DimensionalRiftItem extends Item {
         PlumesTweaks.LOGGER.info("[DimensionalRift] use() called by {} in dim {}",
                 player.getName().getString(), level.dimension().location());
 
-        // ========== 1. Boss 检测（两个维度通用） ==========
+        // ========== 1. 判断当前维度决定行为 ==========
+        ResourceKey<Level> currentDim = serverPlayer.level().dimension();
+        boolean inRiftDim = currentDim.equals(PlumesDimensions.riftLevelKey());
+
+        // ========== 2. 裂隙维度内潜行+右键：设置默认进入坐标（绕过 Boss 检测，不触发往返） ==========
+        if (inRiftDim && player.isShiftKeyDown()) {
+            saveDefaultEnter(stack, serverPlayer);
+            serverPlayer.sendSystemMessage(
+                    Component.translatable("item.plumestweaks.dimensional_rift.enter_set",
+                            (int) player.getX(), (int) player.getY(), (int) player.getZ()), true);
+            return InteractionResultHolder.consume(stack);
+        }
+
+        // ========== 3. Boss 检测（仅对传送操作） ==========
         if (hasBossNearby(level, player)) {
             PlumesTweaks.LOGGER.info("[DimensionalRift] boss nearby, blocking use for {}",
                     player.getName().getString());
@@ -79,11 +93,7 @@ public class DimensionalRiftItem extends Item {
             return InteractionResultHolder.consume(stack);
         }
 
-        // ========== 2. 判断当前维度决定行为 ==========
-        ResourceKey<Level> currentDim = serverPlayer.level().dimension();
-        boolean inRiftDim = currentDim.equals(PlumesDimensions.riftLevelKey());
-
-        // ========== 3. 从物品 CustomData 读取位置数据 ==========
+        // ========== 4. 从物品 CustomData 读取位置数据 ==========
         CompoundTag data = readRiftData(stack);
 
         if (inRiftDim) {
@@ -91,11 +101,7 @@ public class DimensionalRiftItem extends Item {
             if (data.isEmpty()) {
                 // 异常情况：在裂隙维度但物品无数据 → 强制回主世界出生点
                 PlumesTweaks.LOGGER.warn("[DimensionalRift] player in rift but no data found → fallback to overworld spawn");
-                ServerLevel overworld = serverPlayer.getServer().getLevel(Level.OVERWORLD);
-                if (overworld != null) {
-                    BlockPos spawn = overworld.getSharedSpawnPos();
-                    serverPlayer.teleportTo(overworld, spawn.getX() + 0.5, spawn.getY(), spawn.getZ() + 0.5, 0, 0);
-                }
+                fallbackToWorldSpawn(serverPlayer);
                 clearRiftData(stack);
             } else {
                 PlumesTweaks.LOGGER.info("[DimensionalRift] player in rift → returning to original dimension");
@@ -112,7 +118,7 @@ public class DimensionalRiftItem extends Item {
                 PlumesTweaks.LOGGER.info("[DimensionalRift] first use → initializing for {}",
                         player.getName().getString());
                 saveRiftData(stack, serverPlayer);
-                teleportToRift(serverPlayer);
+                teleportToRift(serverPlayer, stack);
 
                 serverPlayer.sendSystemMessage(
                         Component.translatable("item.plumestweaks.dimensional_rift.bind",
@@ -121,7 +127,7 @@ public class DimensionalRiftItem extends Item {
                 // 已有数据：更新位置再传送到空岛（覆盖旧数据）
                 PlumesTweaks.LOGGER.info("[DimensionalRift] player in overworld → saving location and entering rift");
                 saveRiftData(stack, serverPlayer);
-                teleportToRift(serverPlayer);
+                teleportToRift(serverPlayer, stack);
             }
         }
 
@@ -197,7 +203,9 @@ public class DimensionalRiftItem extends Item {
         float pitch = data.getFloat(TAG_PITCH);
 
         if (dimStr.isEmpty() || pos.length < 3) {
-            PlumesTweaks.LOGGER.error("[DimensionalRift] invalid rift data: dim='{}' pos={}", dimStr, pos);
+            PlumesTweaks.LOGGER.error("[DimensionalRift] invalid rift data: dim='{}' pos={}, falling back to world spawn",
+                    dimStr, pos);
+            fallbackToWorldSpawn(player);
             return;
         }
 
@@ -205,7 +213,9 @@ public class DimensionalRiftItem extends Item {
                 Registries.DIMENSION, ResourceLocation.parse(dimStr));
         ServerLevel targetLevel = player.getServer().getLevel(dimKey);
         if (targetLevel == null) {
-            PlumesTweaks.LOGGER.error("[DimensionalRift] target dimension not found: {}", dimStr);
+            PlumesTweaks.LOGGER.error("[DimensionalRift] target dimension not found: {}, falling back to world spawn",
+                    dimStr);
+            fallbackToWorldSpawn(player);
             return;
         }
 
@@ -214,33 +224,56 @@ public class DimensionalRiftItem extends Item {
         player.teleportTo(targetLevel, pos[0] + 0.5, pos[1], pos[2] + 0.5, yaw, pitch);
     }
 
-    /** 由玩家 UUID 确定性计算其专属岛的网格中心世界坐标 */
-    private static int islandCenterFromUuid(UUID uuid, boolean xAxis) {
-        int hash = uuid.hashCode();
-        int idx;
-        if (xAxis) {
-            idx = (hash & 0x7FFF);            // 低 15 位
-        } else {
-            idx = (hash >>> 15) & 0x7FFF;     // 高 15 位
+    /** 返回数据缺失/无效时兜底：强制传送到主世界共享出生点，防止玩家被困在裂隙维度 */
+    private static void fallbackToWorldSpawn(ServerPlayer player) {
+        ServerLevel overworld = player.getServer().getLevel(Level.OVERWORLD);
+        if (overworld == null) {
+            PlumesTweaks.LOGGER.error("[DimensionalRift] overworld level not found, cannot fallback");
+            return;
         }
-        return idx * GRID;
+        BlockPos spawn = overworld.getSharedSpawnPos();
+        player.teleportTo(overworld, spawn.getX() + 0.5, spawn.getY(), spawn.getZ() + 0.5, 0, 0);
     }
 
-    /** 传送到空岛维度（每位玩家按 UUID 分配不同网格单元中的专属岛） */
-    private static void teleportToRift(ServerPlayer player) {
+    /** 将玩家当前位置保存为默认进入裂隙坐标（存于物品 DataComponent，不受死亡影响） */
+    private static void saveDefaultEnter(ItemStack stack, ServerPlayer player) {
+        stack.set(ModDataComponents.RIFT_ENTER, new RiftEnterData(
+                player.level().dimension(),
+                (int) player.getX(), (int) player.getY(), (int) player.getZ()));
+        PlumesTweaks.LOGGER.info("[DimensionalRift] {} set default rift entry at {}({},{},{})",
+                player.getName().getString(), player.level().dimension().location(),
+                (int) player.getX(), (int) player.getY(), (int) player.getZ());
+    }
+
+    /** 传送到空岛维度（优先物品上的默认进入坐标，否则分配专属岛） */
+    private static void teleportToRift(ServerPlayer player, ItemStack stack) {
         ServerLevel riftLevel = player.getServer().getLevel(PlumesDimensions.riftLevelKey());
         if (riftLevel == null) {
             PlumesTweaks.LOGGER.error("[DimensionalRift] Rift dimension not found: {}", PlumesDimensions.riftLevelKey());
             return;
         }
 
-        // 每位玩家固定一个专属岛中心（由 UUID 哈希派生网格索引）
-        UUID uuid = player.getUUID();
-        int centerX = islandCenterFromUuid(uuid, true);
-        int centerZ = islandCenterFromUuid(uuid, false);
+        // 优先：物品上存储的默认进入坐标（裂隙维度内潜行+右键设置）
+        RiftEnterData enter = stack.get(ModDataComponents.RIFT_ENTER);
+        if (enter != null && enter.y() > 0) {
+            ServerLevel targetLevel = player.getServer().getLevel(enter.dimension());
+            if (targetLevel != null) {
+                PlumesTweaks.LOGGER.info("[DimensionalRift] teleporting {} to default entry {}({},{},{})",
+                        player.getName().getString(), enter.dimension().location(),
+                        enter.x(), enter.y(), enter.z());
+                player.teleportTo(targetLevel, enter.x() + 0.5, enter.y(), enter.z() + 0.5,
+                        player.getYRot(), 0.0f);
+                return;
+            }
+        }
+
+        // 否则：分配/获取玩家专属岛中心（从世界中心向外螺旋，严格一格一玩家，持久化）
+        long island = RiftIslandAllocator.allocate(player);
+        int centerX = RiftIslandAllocator.centerX(island);
+        int centerZ = RiftIslandAllocator.centerZ(island);
 
         // 在岛中心附近取一个固定方向作为落点（平原边缘，靠近山脉）
-        double angle = (uuid.hashCode() & 0x7FFFFFFF) / (double) 0x7FFFFFFF * Math.PI * 2;
+        double angle = (player.getUUID().hashCode() & 0x7FFFFFFF) / (double) 0x7FFFFFFF * Math.PI * 2;
         double x = centerX + Math.cos(angle) * RIFT_SPAWN_RADIUS;
         double z = centerZ + Math.sin(angle) * RIFT_SPAWN_RADIUS;
         float yaw = (float) (Math.toDegrees(angle) + 180); // 面朝山脉方向
@@ -265,5 +298,27 @@ public class DimensionalRiftItem extends Item {
         // 第二行：Boss 限制提示
         tooltipComponents.add(Component.translatable("item.plumestweaks.dimensional_rift.boss_limit")
                 .withStyle(ChatFormatting.RED));
+
+        // 第三行：设置默认进入坐标提示（实时显示绑定的潜行键名）
+        tooltipComponents.add(Component.translatable("item.plumestweaks.dimensional_rift.set_enter",
+                        getShiftKeyName())
+                .withStyle(ChatFormatting.GREEN));
+
+        // 第四行：实时显示物品上存储的默认进入点（维度 + 坐标）；未设置则不显示
+        RiftEnterData enter = stack.get(ModDataComponents.RIFT_ENTER);
+        if (enter != null) {
+            tooltipComponents.add(Component.translatable("item.plumestweaks.dimensional_rift.enter_point",
+                            enter.dimension().location().toString(),
+                            enter.x(), enter.y(), enter.z())
+                    .withStyle(ChatFormatting.AQUA));
+        }
+    }
+
+    /** 获取玩家实际绑定的潜行键显示名（仅客户端），服务端兜底用 "Shift" */
+    private static Component getShiftKeyName() {
+        if (FMLLoader.getDist() == Dist.CLIENT) {
+            return Minecraft.getInstance().options.keyShift.getTranslatedKeyMessage();
+        }
+        return Component.literal("Shift");
     }
 }

@@ -8,12 +8,14 @@ import com.mojang.logging.LogUtils;
 
 import com.plumestweaks.component.ModDataComponents;
 import com.plumestweaks.dimension.PlumesDimensions;
+import com.plumestweaks.dimension.RiftIslandAllocator;
 import com.plumestweaks.effect.MountProtectionEffect;
 import com.plumestweaks.item.DimensionalRiftItem;
 import com.plumestweaks.item.TeleportLenItem;
 import com.plumestweaks.item.TempRespawnPointItem;
 import com.plumestweaks.network.ClearItemsConfirmPayload;
 import com.plumestweaks.network.ClearItemsConfirmResponsePayload;
+import com.plumestweaks.network.CompassFoundPayload;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -47,6 +49,7 @@ import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.level.SleepFinishedTimeEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -154,6 +157,12 @@ public class PlumesTweaks {
                     ClearItemsConfirmPayload.STREAM_CODEC,
                     (payload, context) -> {}
             );
+            // 指南针路径点通道占位（客户端在 ClientPayloadHandler 中注册真实 handler）
+            registrar.playToClient(
+                    CompassFoundPayload.TYPE,
+                    CompassFoundPayload.STREAM_CODEC,
+                    (payload, context) -> {}
+            );
         }
     }
 
@@ -181,8 +190,10 @@ public class PlumesTweaks {
 
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event) {
-        var riftLevel = event.getServer().getLevel(PlumesDimensions.riftLevelKey());
-        var overworld = event.getServer().overworld();
+        var server = event.getServer();
+        RiftIslandAllocator.load(server);
+        var riftLevel = server.getLevel(PlumesDimensions.riftLevelKey());
+        var overworld = server.overworld();
         if (riftLevel != null && overworld != null) {
             // 初始同步主世界时间和天气
             riftLevel.setDayTime(overworld.getDayTime());
@@ -191,6 +202,11 @@ public class PlumesTweaks {
             LOGGER.info("[Rift] Initial time/weather synced with overworld");
         }
         LOGGER.info("Plume's Tweaks loaded");
+    }
+
+    @SubscribeEvent
+    public void onServerStopping(ServerStoppingEvent event) {
+        RiftIslandAllocator.save();
     }
 
     @SubscribeEvent

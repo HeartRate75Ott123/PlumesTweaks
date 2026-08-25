@@ -29,6 +29,12 @@ public class ModDataComponents {
                     .persistent(CooldownData.CODEC)
                     .networkSynchronized(CooldownData.STREAM_CODEC));
 
+    /** 时空裂隙默认进入点：维度 + 坐标（存于物品，不依赖玩家数据） */
+    public static final DeferredHolder<DataComponentType<?>, DataComponentType<RiftEnterData>> RIFT_ENTER =
+            register("rift_enter", builder -> builder
+                    .persistent(RiftEnterData.CODEC)
+                    .networkSynchronized(RiftEnterData.STREAM_CODEC));
+
     private static <T> DeferredHolder<DataComponentType<?>, DataComponentType<T>> register(
             String name, UnaryOperator<DataComponentType.Builder<T>> builder) {
         return COMPONENTS.register(name, () -> builder.apply(DataComponentType.builder()).build());
