@@ -35,18 +35,24 @@ public final class XaeroWaypointBridge {
             if (set == null) return;
 
             Class<?> wpClass = Class.forName("xaero.common.minimap.waypoints.Waypoint");
-            Class<?> colorClass = Class.forName("xaero.common.minimap.waypoints.WaypointColor");
-            Class<?> purposeClass = Class.forName("xaero.common.minimap.waypoints.WaypointPurpose");
+            // 注意：WaypointColor / WaypointPurpose 在 xaero.hud.minimap.waypoint 包，而非 xaero.common
+            Class<?> colorClass = Class.forName("xaero.hud.minimap.waypoint.WaypointColor");
+            Class<?> purposeClass = Class.forName("xaero.hud.minimap.waypoint.WaypointPurpose");
             Object color = colorClass.getMethod("getRandom").invoke(null);
             Object purpose = Enum.valueOf((Class<? extends Enum>) purposeClass, "NORMAL");
             String symbol = name.length() > 1 ? name.substring(0, 2) : name;
             Object waypoint = wpClass.getConstructor(int.class, int.class, int.class, String.class,
                             String.class, colorClass, purposeClass)
                     .newInstance(x, y, z, name, symbol, color, purpose);
-            set.getClass().getMethod("add", wpClass).invoke(set, waypoint);
+            // WaypointSet.add(Waypoint) 失败时回退到 addWaypoint(Waypoint)
+            try {
+                set.getClass().getMethod("add", wpClass).invoke(set, waypoint);
+            } catch (NoSuchMethodException e) {
+                set.getClass().getMethod("addWaypoint", wpClass).invoke(set, waypoint);
+            }
         } catch (Throwable t) {
-            // Xaero 未安装 / 仅装 World Map 缺共享库 / API 变更 —— 静默降级
-            PlumesTweaks.LOGGER.debug("[Xaero] addWaypoint skipped: {}", t.getMessage());
+            // Xaero 未安装 / 仅装 World Map 缺共享库 / API 变更 —— 仍记录 warn 便于排查
+            PlumesTweaks.LOGGER.warn("[Xaero] addWaypoint failed: {}", t.getMessage());
         }
     }
 }

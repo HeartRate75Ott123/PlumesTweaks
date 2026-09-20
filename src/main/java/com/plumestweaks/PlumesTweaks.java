@@ -16,6 +16,7 @@ import com.plumestweaks.item.TempRespawnPointItem;
 import com.plumestweaks.network.ClearItemsConfirmPayload;
 import com.plumestweaks.network.ClearItemsConfirmResponsePayload;
 import com.plumestweaks.network.CompassFoundPayload;
+import com.plumestweaks.util.BossEntityLoader;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -44,6 +45,7 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.fml.loading.FMLLoader;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
+import net.neoforged.neoforge.event.AddReloadListenerEvent;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDamageEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
@@ -186,6 +188,12 @@ public class PlumesTweaks {
                 }
             }
         });
+    }
+
+    @SubscribeEvent
+    public void onAddReloadListeners(AddReloadListenerEvent event) {
+        // 首领实体清单（数据包）：data/plumestweaks/boss_entities/*.json
+        event.addListener(new BossEntityLoader());
     }
 
     @SubscribeEvent

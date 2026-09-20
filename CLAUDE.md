@@ -14,11 +14,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - 需要 JDK 21（Temurin 推荐）
 - NeoForge MDG 2.0.141 + Loom（自动生成 refmap）
-- 构建产物 `build/libs/plumestweaks-1.0.0.jar`
+- 构建产物 `build/libs/plumestweaks-<版本>.jar`
 
 ## 功能总览
 
-本项目是一个 NeoForge 1.21.1 模组，包含八个独立功能：
+本项目是一个 NeoForge 1.21.1 模组，包含十一个独立功能：
 
 | 功能 | 核心类 | 说明 |
 |---|---|---|
@@ -32,6 +32,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | 时空裂隙 | `DimensionalRiftItem` + `PlumesDimensions` + `RiftChunkGenerator` | 右键撕开次元裂隙，传送到自定义空岛（半径64、平原Y=32、环绕山脉高至Y=96、山脉下悬挂深达35格、噪声钟乳石尖刺、4格网格双线性插值、泥土→石头→混合石材方块调色板），再次右键返回原维度，2分钟冷却，绿色耐久条 + tooltip + ActionBar提醒 |
 | 骑马保护效果 | `MountProtectionEffect` + `PlayerMountProtectionMixin` | 骑马时获得隐藏效果，持有时取消玩家伤害，下马后 6 秒无敌窗口 |
 | 原初之匣（观察者模式） | `TeleportLenItem` + `PlumesTweaks` (事件) | 右键进入 10 秒观察者模式，倒计时恢复原模式 + 5 秒摔落免疫，1 分钟冷却（耐久条 + tooltip），跨维度/重连恢复安全 |
+| 首领名单（数据包） | `BossEntityLoader` | `data/plumestweaks/boss_entities/*.json` 声明哪些实体算 Boss，取代旧的 `ServerBossEvent` 字段反射扫描 |
+| 裂隙维度建门 | `RiftNetherPortalMixin` + `TwilightForestPortalMixin` | 裂隙维度内可点燃下界传送门（原版硬编码只允许主世界/下界）+ 可建造暮色森林传送门 |
+| 幻灵放行 | `PhantomExemption` | lensouls 借体 Boss / 召唤物（`lensouls:phantom*` 标记）不触发「附近有 Boss」限制 |
 
 ## 项目结构
 
@@ -58,15 +61,21 @@ src/main/java/com/plumestweaks/
     PlayerHorseMixin.java                   # Player.hurt HEAD：骑马时伤害重定向到马
     PlayerMountProtectionMixin.java          # Player.tick TAIL + hurt HEAD：骑马保护效果赋予与伤害取消
     ServerPlayerRespawnMixin.java            # ServerPlayer.findRespawnPosition HEAD：直接返回临时重生点 DimensionTransition
+    RiftNetherPortalMixin.java               # BaseFireBlock.inPortalDimension：裂隙维度内允许点燃下界传送门
+    TwilightForestPortalMixin.java           # @Pseudo：裂隙维度内放行暮色森林传送门（反射调用 TF 原逻辑）
     FoodDataAccessor.java                   # @Accessor 访问 FoodData.exhaustionLevel
   network/
     ClearItemsConfirmPayload.java           # S2C：清理确认请求
     ClearItemsConfirmResponsePayload.java   # C2S：玩家确认响应
+  util/
+    BossEntityLoader.java                   # 数据包首领名单：加载 / 判定 / 半径扫描
+    PhantomExemption.java                   # lensouls 虚影幻灵 persistentData 标记判定
 
 src/main/resources/
   plumestweaks.mixins.json      # Mixin 注册清单
   assets/plumestweaks/lang/     # zh_cn.json + en_us.json
   assets/plumestweaks/models/   # 物品模型
+  data/plumestweaks/boss_entities/bosses.json  # 首领实体名单（与 lensouls 同格式）
 ```
 
 ## 架构要点
@@ -112,20 +121,97 @@ src/main/resources/
 - 玩家断开连接时自动清理未确认状态
 - 客户端处理器用反射注册（`Class.forName`），避免服务端加载客户端类
 
-### Boss 检测算法（临时重生点）
+### Boss 检测算法（数据包首领名单）
 
-通过反射扫描实体的类继承链，检查是否存在 `ServerBossEvent` 类型字段：
+旧方案通过反射扫描实体的类继承链、检查是否存在 `ServerBossEvent` 类型字段。
+问题是：任何持有血条字段的实体都会被算作 Boss（包括模组召唤物、借体幻灵），
+整合包作者无法调整，误报率高。
+
+现方案改为**数据包名单**，与 lensouls 的 `boss_entities` 同格式：
+
+```
+data/plumestweaks/boss_entities/bosses.json
+[
+  { "id": "minecraft:wither" },
+  { "id": "cataclysm:ignis" },
+  { "id": "twilightforest:naga" }
+]
+```
+
+- 加载：`BossEntityLoader extends SimpleJsonResourceReloadListener`，在
+  `AddReloadListenerEvent` 中注册（`PlumesTweaks#onAddReloadListeners`）
+- 判定：`BossEntityLoader.countsAsBoss(entity)` = 实体存活 && 注册名在名单内 && 非幻灵
+- 扫描：`BossEntityLoader.hasBossNearby(level, center, radius)` 供两个物品复用
+- 名单为空（数据包缺失）时判定全部放行，属于「不阻断玩法」的失败方向
+
+### 幻灵放行（lensouls 兼容）
+
+lensouls 的 BOSS 镜魂演出会**借体**：反射构造其它模组的 Boss 实体
+（灾变 Ignis / 利维坦 / 湮灭者、传奇怪物云巨人、暮色森林九头蛇 / 幻影骑士等），
+并把它周围新生成的生物标记为召唤物。这些实体对玩家是友方单位，
+但实体类型与真 Boss 完全一致 —— 若只按名单判定，召唤幻灵时会被
+「附近有 Boss」挡住裂隙。
+
+lensouls 用 `persistentData` 打标，本模组据此放行：
+
+| 标记 | 含义 |
+|---|---|
+| `lensouls:phantom` | 借体 Boss 本体 |
+| `lensouls:phantom_minion` | 借体 Boss 的召唤物 |
+| `lensouls:phantom_owner` | 施法玩家 UUID |
+
+`PhantomExemption.isPhantom(entity)` 读这两个布尔标记；未安装 lensouls 时恒为 false。
+
+### 裂隙维度内建传送门
+
+| 传送门 | 门禁位置 | 处理 |
+|---|---|---|
+| 下界传送门 | `BaseFireBlock#inPortalDimension(Level)` | `RiftNetherPortalMixin` 让裂隙维度返回 true |
+| 暮色森林传送门 | `ProgressionEvents#checkForPortalCreation` 的 `allowPortalsInOtherDimensions` 全局开关 | `TwilightForestPortalMixin` 仅对裂隙维度临时放开 |
+
+#### 下界传送门：`RiftNetherPortalMixin`
+
+原版把「能否形成下界传送门」硬编码为只有主世界与下界：
 
 ```java
-while (clazz != null && clazz != Entity.class) {
-    for (Field field : clazz.getDeclaredFields()) {
-        if (ServerBossEvent.class.isAssignableFrom(field.getType())) return true;
-    }
-    clazz = clazz.getSuperclass();
+private static boolean inPortalDimension(Level level) {
+    return level.dimension() == Level.OVERWORLD || level.dimension() == Level.NETHER;
 }
 ```
 
-无需硬编码 Boss 实体列表，自动适配任意（含模组添加的）Boss 级生物。
+该方法被**两处**使用，缺一不可：
+
+1. `BaseFireBlock#onPlace` —— 火焰放置后尝试把黑曜石门框变成传送门。非主世界/下界直接跳过。
+2. `BaseFireBlock#isPortal`（被 `canBePlacedAt` 调用）—— 决定打火石能否在该位置点火。
+   非主世界/下界返回 false，于是**打火石连火都点不起来**，`InteractionResult.FAIL`。
+
+所以只在 `onPlace` 让行是不够的（表现就是「点火失败」而不是「有火但不成门」）。
+本 Mixin 在 `inPortalDimension` HEAD 直接改写返回值，两处判定同时放行。
+
+进门/出门的维度传送本来就没有来源维度限制——`NetherPortalBlock#getPortalDestination`
+只判断「目标维度是不是下界」，因此补上「点燃」环节即可完整可用。
+`coordinate_scale=1.0` 意味着裂隙与主世界 1:1 换算，与下界之间按 1:8 缩放（原版行为）。
+
+#### 暮色森林传送门：`TwilightForestPortalMixin`
+
+门禁在 `ProgressionEvents#checkForPortalCreation`：
+
+```java
+if (world.dimension().location().equals(TFConfig.originDimension)
+        || TFDimension.isTwilightPortalDestination(world)
+        || TFConfig.allowPortalsInOtherDimensions) { ... }
+```
+
+`allowPortalsInOtherDimensions` 默认 false 且是全局开关，不该为一个维度对整个整合包放开。
+本 Mixin 注入调用点 `ProgressionEvents#performProtectionAndPortalChecks` 的 TAIL：
+玩家处于裂隙维度时，在**本次检查内**临时把该开关置 true，反射调用 TF 原有的
+`checkForPortalCreation`，`finally` 中立刻还原 —— 不改全局配置，
+也不复制 TF 的门生成 / 安全落点算法。
+检查频率（`checkPortalPlacement` → 20/100 tick）、权限门槛
+（`portalCreationPermission`）、扫描半径策略全部沿用 TF 原逻辑。
+
+实现上用 `@Pseudo` + 反射 + `expect = 0`：未装暮色森林时静默失效，
+TF 日后改签名 / 改字段名时只跳过处理并打日志，不会崩溃。
 
 ### 临时重生点数据流
 

@@ -2,6 +2,7 @@ package com.plumestweaks.mixin;
 
 import com.plumestweaks.Config;
 import com.plumestweaks.network.CompassFoundPayload;
+import com.plumestweaks.util.CompassTeleportHeight;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
@@ -18,7 +19,9 @@ import java.util.List;
 
 /**
  * 注入 Nature's Compass 的 {@code succeed} —— 查找到群系的服务端入口。
- * 取玩家、坐标与群系键，发 {@link CompassFoundPayload} 给该玩家。
+ * <p>
+ * 只发送群系的注册键（{@code namespace:path}），显示名由客户端用翻译键
+ * {@code biome.<ns>.<path>} 解析，以兼容资源包汉化。
  */
 @Pseudo
 @Mixin(targets = "com.chaosthedude.naturescompass.items.NaturesCompassItem", remap = false)
@@ -35,24 +38,15 @@ public abstract class NaturesCompassFoundMixin {
                             "com.chaosthedude.naturescompass.items.NaturesCompassItem")
                     .getMethod("getBiomeKey", ItemStack.class)
                     .invoke(stack.getItem(), stack);
-            String name = biomeKey != null ? biomeKey.toString() : "biome";
-            if (biomeKey != null) {
-                var biome = sp.serverLevel().registryAccess()
-                        .registry(net.minecraft.core.registries.Registries.BIOME)
-                        .map(reg -> reg.get(biomeKey)).orElse(null);
-                if (biome != null) {
-                    try {
-                        Object comp = biome.getClass().getMethod("getDescription").invoke(biome);
-                        if (comp instanceof net.minecraft.network.chat.Component c) {
-                            String s = c.getString();
-                            if (s != null && !s.isEmpty()) name = s;
-                        }
-                    } catch (Exception ignored) {
-                    }
-                }
-            }
+            if (biomeKey == null) return;
+
             String dim = sp.level().dimension().location().toString();
-            PacketDistributor.sendToPlayer(sp, new CompassFoundPayload(x, 64, z, dim, name, (byte) 0));
+            BlockPos target = (prevPos != null && !prevPos.isEmpty()) ? prevPos.get(0) : new BlockPos(x, 0, z);
+            int wx = target.getX();
+            int wz = target.getZ();
+            int wy = CompassTeleportHeight.computeY(sp.serverLevel(), wx, wz,
+                    "com.chaosthedude.naturescompass.network.TeleportPacket");
+            PacketDistributor.sendToPlayer(sp, new CompassFoundPayload(wx, wy, wz, dim, biomeKey.toString(), (byte) 0));
         } catch (Exception ignored) {
             // 反射调用指南针类失败，静默跳过
         }

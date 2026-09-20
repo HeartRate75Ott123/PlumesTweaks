@@ -6,18 +6,14 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.server.level.ServerBossEvent;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResultHolder;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.phys.AABB;
 
-import java.lang.reflect.Field;
-import java.util.List;
+import com.plumestweaks.util.BossEntityLoader;
 
 public class TempRespawnPointItem extends Item {
 
@@ -71,25 +67,14 @@ public class TempRespawnPointItem extends Item {
     }
 
     /**
-     * 检查 64 格范围内是否有 Boss 级怪物（顶部血条）。
+     * 检查 64 格范围内是否有 Boss 级怪物。
+     * <p>
+     * 判定来源为数据包清单 {@code data/plumestweaks/boss_entities/*.json}
+     * （见 {@link BossEntityLoader}），并放行 lensouls 的虚影幻灵
+     * （借体 Boss 本体与其召唤物，见 {@link com.plumestweaks.util.PhantomExemption}）。
      */
     private boolean hasBossNearby(Level level, Player player) {
-        AABB box = player.getBoundingBox().inflate(BOSS_CHECK_RADIUS);
-        List<? extends Entity> entities = level.getEntitiesOfClass(Entity.class, box,
-                e -> e != player && e.isAlive() && hasBossBarField(e.getClass()));
-        return !entities.isEmpty();
-    }
-
-    private static boolean hasBossBarField(Class<?> clazz) {
-        while (clazz != null && clazz != Entity.class) {
-            for (Field field : clazz.getDeclaredFields()) {
-                if (ServerBossEvent.class.isAssignableFrom(field.getType())) {
-                    return true;
-                }
-            }
-            clazz = clazz.getSuperclass();
-        }
-        return false;
+        return BossEntityLoader.hasBossNearby(level, player, BOSS_CHECK_RADIUS);
     }
 
     private void setTempSpawn(ServerPlayer player, BlockPos pos, String dimension) {

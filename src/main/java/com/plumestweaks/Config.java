@@ -14,10 +14,31 @@ public class Config {
                      "Requires Xaero's Minimap (and/or World Map) installed on the client", "Default: true")
             .define("autoXaeroWaypoint", true);
 
+    /** 命令解禁总开关 */
     public static final ModConfigSpec.BooleanValue FREE_CROSS_DIMENSION_TP = BUILDER
-            .comment("Allow vanilla /tp, /teleport and /execute without operator permission (survival, no cheats)",
-                     "WARNING: any player can teleport anyone/anywhere across dimensions", "Default: true")
+            .comment("Master switch: allow /execute, /place and FTB Quests /ftbquests without operator permission",
+                     "Each command can still be toggled separately below", "Default: true")
             .define("freeCrossDimensionTp", true);
+
+    public static final ModConfigSpec.BooleanValue FREE_EXECUTE = BUILDER
+            .comment("Allow vanilla /execute without operator permission",
+                     "Requires the master switch 'freeCrossDimensionTp' to be enabled", "Default: true")
+            .define("freeExecute", true);
+
+    public static final ModConfigSpec.BooleanValue FREE_FTBQUESTS = BUILDER
+            .comment("Allow FTB Quests /ftbquests (all subcommands) without operator permission",
+                     "Requires the master switch 'freeCrossDimensionTp' to be enabled", "Default: true")
+            .define("freeFtbQuests", true);
+
+    public static final ModConfigSpec.BooleanValue FREE_PLACE = BUILDER
+            .comment("Allow vanilla /place without operator permission",
+                     "Requires the master switch 'freeCrossDimensionTp' to be enabled", "Default: true")
+            .define("freePlace", true);
+
+    public static final ModConfigSpec.BooleanValue FREE_COMPASS_TELEPORT = BUILDER
+            .comment("Allow Nature's/Explorer's Compass teleport button without operator permission",
+                     "When disabled, the original (cheat mode or OP) requirement is restored", "Default: true")
+            .define("freeCompassTeleport", true);
 
     public static final ModConfigSpec SPEC = BUILDER.build();
 }

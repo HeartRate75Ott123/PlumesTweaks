@@ -7,6 +7,7 @@ modId="${mod_id}"
 version="${mod_version}"
 displayName="${mod_name}"
 authors="Plume Jade"
+logoFile="icon.png"
 description='''
 This is a mod for my modpack, containing some tweaks.
 '''

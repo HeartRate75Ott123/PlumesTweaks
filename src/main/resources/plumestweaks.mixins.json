@@ -7,7 +7,8 @@
     "NaturesCompassPlayerUtilsMixin",
     "NaturesCompassFoundMixin",
     "ExplorersCompassFoundMixin",
-    "CommandsPermissionMixin",
+    "ServerGamePacketListenerImplMixin",
+    "PermissionsHelperMixin",
     "AbstractHorseMixin",
     "FoodDataAccessor",
     "ServerPlayerRespawnMixin",
@@ -15,7 +16,9 @@
     "PlayerHorseMixin",
     "PlayerMountProtectionMixin",
     "SlideFallProtectionMixin",
-    "RiftTimeSyncMixin"
+    "RiftTimeSyncMixin",
+    "RiftNetherPortalMixin",
+    "TwilightForestPortalMixin"
   ],
   "client": [
     "LocalPlayerMixin"
