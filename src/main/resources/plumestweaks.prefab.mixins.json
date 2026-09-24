@@ -1,14 +1,14 @@
 {
-  "required": true,
+  "required": false,
   "minVersion": "0.8.5",
   "package": "com.plumestweaks.mixin",
   "compatibilityLevel": "JAVA_17",
   "refmap": "plumestweaks.refmap.json",
   "mixins": [
-    "RiftNetherPortalMixin"
+    "PrefabWaterInRiftMixin"
   ],
   "client": [],
   "injectors": {
-    "defaultRequire": 1
+    "defaultRequire": 0
   }
 }

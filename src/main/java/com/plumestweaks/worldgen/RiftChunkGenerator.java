@@ -1,6 +1,6 @@
 package com.plumestweaks.worldgen;
 
-import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
@@ -22,6 +22,7 @@ import net.minecraft.world.level.levelgen.blending.Blender;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.function.Function;
 
 /**
@@ -50,7 +51,7 @@ public class RiftChunkGenerator extends ChunkGenerator {
     }
 
     @Override
-    public CompletableFuture<ChunkAccess> fillFromNoise(Blender blender, RandomState randomState,
+    public CompletableFuture<ChunkAccess> fillFromNoise(Executor executor, Blender blender, RandomState randomState,
                                                          StructureManager structureManager, ChunkAccess chunk) {
         int cx = chunk.getPos().x, cz = chunk.getPos().z;
         if (Math.sqrt((cx * 16 + 8) * (cx * 16 + 8) + (cz * 16 + 8) * (cz * 16 + 8)) > MAX_R + 8)
@@ -122,7 +123,7 @@ public class RiftChunkGenerator extends ChunkGenerator {
      *   1. 宽基座 swell（sin² 廓线，提供山体厚度）
      *   2. 脊线网络（abs(噪声) 折叠产生 V 形脊线，多频叠加）
      *   3. 高度调制（低频噪声，产生错落感）
-     *   三者通过 max() + 加法组合。
+     * 三者通过 max() + 加法组合。
      */
     private static double rawThickness(int wx, int wz) {
         double raw = Math.sqrt(wx * (double) wx + wz * (double) wz);
@@ -323,7 +324,7 @@ public class RiftChunkGenerator extends ChunkGenerator {
     private static BlockState blockForHanging(int yBelow, int downThick, int wx, int wz) {
         int wy = PLAIN_Y - 1 - yBelow;
 
-        // 平原底部（Y=31, Y=30）：泥土
+        // 平原底部（Y=127, 126）：泥土
         if (yBelow <= 1) return Blocks.DIRT.defaultBlockState();
 
         // 上部过渡（穹顶表层）：粗泥 → 石头
@@ -409,7 +410,7 @@ public class RiftChunkGenerator extends ChunkGenerator {
 
     // ========== 编解码器 ==========
 
-    public static final MapCodec<RiftChunkGenerator> CODEC = RecordCodecBuilder.mapCodec(
+    public static final Codec<RiftChunkGenerator> CODEC = RecordCodecBuilder.create(
             inst -> inst.group(
                     BiomeSource.CODEC.fieldOf("biome_source").forGetter(ChunkGenerator::getBiomeSource)
             ).apply(inst, (BiomeSource bs) ->
@@ -417,5 +418,5 @@ public class RiftChunkGenerator extends ChunkGenerator {
     );
 
     @Override
-    public MapCodec<? extends ChunkGenerator> codec() { return CODEC; }
+    public Codec<? extends ChunkGenerator> codec() { return CODEC; }
 }

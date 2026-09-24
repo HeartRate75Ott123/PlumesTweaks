@@ -1,15 +1,14 @@
 package com.plumestweaks.dimension;
 
-import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.Codec;
 import com.plumestweaks.PlumesTweaks;
 import com.plumestweaks.worldgen.RiftChunkGenerator;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.chunk.ChunkGenerator;
-import net.neoforged.neoforge.registries.DeferredRegister;
-
-import java.util.function.Supplier;
+import net.minecraftforge.registries.DeferredRegister;
+import net.minecraftforge.registries.RegistryObject;
 
 /**
  * 时空裂隙维度注册。
@@ -25,14 +24,14 @@ import java.util.function.Supplier;
 public class PlumesDimensions {
 
     public static final ResourceLocation RIFT_LOCATION =
-            ResourceLocation.parse(PlumesTweaks.MODID + ":rift");
+            ResourceLocation.tryParse(PlumesTweaks.MODID + ":rift");
 
-    /** 区块生成器编解码器注册表 */
-    public static final DeferredRegister<MapCodec<? extends ChunkGenerator>> CHUNK_GENERATORS =
+    /** 区块生成器编解码器注册表（1.20.1 中 CHUNK_GENERATOR 注册表值为 Codec） */
+    public static final DeferredRegister<Codec<? extends ChunkGenerator>> CHUNK_GENERATORS =
             DeferredRegister.create(Registries.CHUNK_GENERATOR, PlumesTweaks.MODID);
 
     /** 注册 rift 区块生成器编解码器，使 JSON 中的 "type": "plumestweaks:rift" 可被解析 */
-    public static final Supplier<MapCodec<? extends ChunkGenerator>> RIFT_CODEC =
+    public static final RegistryObject<Codec<RiftChunkGenerator>> RIFT_CODEC =
             CHUNK_GENERATORS.register("rift", () -> RiftChunkGenerator.CODEC);
 
     /** 获取玩家可传送的维度 ResourceKey */
