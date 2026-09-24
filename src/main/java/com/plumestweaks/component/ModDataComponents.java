@@ -35,6 +35,12 @@ public class ModDataComponents {
                     .persistent(RiftEnterData.CODEC)
                     .networkSynchronized(RiftEnterData.STREAM_CODEC));
 
+    /** 时空裂隙多维出口点：裂隙外各维度最近一次进入裂隙的坐标（存于物品） */
+    public static final DeferredHolder<DataComponentType<?>, DataComponentType<RiftExitData>> RIFT_EXITS =
+            register("rift_exits", builder -> builder
+                    .persistent(RiftExitData.CODEC)
+                    .networkSynchronized(RiftExitData.STREAM_CODEC));
+
     private static <T> DeferredHolder<DataComponentType<?>, DataComponentType<T>> register(
             String name, UnaryOperator<DataComponentType.Builder<T>> builder) {
         return COMPONENTS.register(name, () -> builder.apply(DataComponentType.builder()).build());

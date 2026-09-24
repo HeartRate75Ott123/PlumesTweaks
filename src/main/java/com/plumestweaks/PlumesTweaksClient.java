@@ -12,6 +12,7 @@ import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 
 @Mod(value = PlumesTweaks.MODID, dist = Dist.CLIENT)
 public class PlumesTweaksClient {
+
     public PlumesTweaksClient(ModContainer container, IEventBus modEventBus) {
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
         modEventBus.addListener(PlumesTweaksClient::registerClientExtensions);

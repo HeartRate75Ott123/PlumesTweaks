@@ -16,6 +16,8 @@ import com.plumestweaks.item.TempRespawnPointItem;
 import com.plumestweaks.network.ClearItemsConfirmPayload;
 import com.plumestweaks.network.ClearItemsConfirmResponsePayload;
 import com.plumestweaks.network.CompassFoundPayload;
+import com.plumestweaks.network.RiftOpenGuiPayload;
+import com.plumestweaks.network.RiftTeleportPayload;
 import com.plumestweaks.util.BossEntityLoader;
 
 import net.minecraft.commands.CommandSourceStack;
@@ -32,6 +34,7 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.level.GameType;
 import net.neoforged.bus.api.IEventBus;
@@ -143,6 +146,17 @@ public class PlumesTweaks {
                 (payload, context) -> handleConfirmResponse(context)
         );
 
+        // C2S: 裂隙界面选定维度 → 传送到该维度记录点（坐标由服务端从物品组件重读）
+        registrar.playToServer(
+                RiftTeleportPayload.TYPE,
+                RiftTeleportPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> {
+                    if (context.player() instanceof ServerPlayer serverPlayer) {
+                        DimensionalRiftItem.teleportToRecordedDimension(serverPlayer, payload.dimensionId());
+                    }
+                })
+        );
+
         // S2C: 确认请求，使用反射桥接客户端处理器（避免服务端加载客户端类）
         if (FMLLoader.getDist() == Dist.CLIENT) {
             try {
@@ -163,6 +177,12 @@ public class PlumesTweaks {
             registrar.playToClient(
                     CompassFoundPayload.TYPE,
                     CompassFoundPayload.STREAM_CODEC,
+                    (payload, context) -> {}
+            );
+            // 裂隙传送界面通道占位
+            registrar.playToClient(
+                    RiftOpenGuiPayload.TYPE,
+                    RiftOpenGuiPayload.STREAM_CODEC,
                     (payload, context) -> {}
             );
         }
@@ -271,6 +291,154 @@ public class PlumesTweaks {
                                 .executes(ctx -> checkSpawnPoint(ctx.getSource()))
                         )
         );
+
+        // /riftdebug add [n] | remove | clear | list | gui — 裂隙传送界面的测试指令
+        dispatcher.register(
+                Commands.literal("riftdebug")
+                        .requires(source -> source.hasPermission(2))
+                        .then(Commands.literal("add")
+                                .executes(ctx -> riftDebugAdd(ctx.getSource(), 12))
+                                .then(Commands.argument("count", IntegerArgumentType.integer(1, 64))
+                                        .executes(ctx -> riftDebugAdd(ctx.getSource(),
+                                                IntegerArgumentType.getInteger(ctx, "count")))))
+                        .then(Commands.literal("remove")
+                                .executes(ctx -> riftDebugRemove(ctx.getSource())))
+                        .then(Commands.literal("clear")
+                                .executes(ctx -> riftDebugClear(ctx.getSource())))
+                        .then(Commands.literal("list")
+                                .executes(ctx -> riftDebugList(ctx.getSource())))
+                        .then(Commands.literal("gui")
+                                .executes(ctx -> riftDebugGui(ctx.getSource())))
+        );
+    }
+
+    // ========== /riftdebug：裂隙界面测试指令 ==========
+
+    /** 调试条目前缀（客户端据此自动打开调试叠加，见 RiftTeleportScreen） */
+    private static final String DEBUG_DIM_PREFIX = MODID + ":debug_";
+
+    /** 常用维度名，让测试列表看起来贴近真实场景 */
+    private static final String[] DEBUG_DIM_NAMES = {
+            "minecraft:overworld", "minecraft:the_nether", "minecraft:the_end",
+            "twilightforest:twilight_forest"
+    };
+
+    private static ItemStack findRiftStack(ServerPlayer player) {
+        for (ItemStack s : player.getInventory().items) {
+            if (s.getItem() instanceof DimensionalRiftItem) return s;
+        }
+        for (ItemStack s : player.getInventory().offhand) {
+            if (s.getItem() instanceof DimensionalRiftItem) return s;
+        }
+        return null;
+    }
+
+    private int riftDebugAdd(CommandSourceStack source, int count) throws CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
+        ItemStack stack = findRiftStack(player);
+        if (stack == null) {
+            player.sendSystemMessage(Component.translatable("commands.plumestweaks.riftdebug.no_item"));
+            return 0;
+        }
+
+        com.plumestweaks.component.RiftExitData data = DimensionalRiftItem.readExits(stack);
+        int added = 0;
+        for (int i = 1; i <= count; i++) {
+            String dimId;
+            String label;
+            if (i <= DEBUG_DIM_NAMES.length) {
+                // 前几条用真实维度 id，但用 debug_ 前缀保证与真实记录互不覆盖
+                String real = DEBUG_DIM_NAMES[i - 1];
+                dimId = DEBUG_DIM_PREFIX + real.substring(real.indexOf(':') + 1);
+                label = real;
+            } else {
+                dimId = DEBUG_DIM_PREFIX + String.format("%02d", i);
+                label = "";
+            }
+            data = data.with(new com.plumestweaks.component.RiftExitEntry(
+                    dimId, label,
+                    (i * 137) % 2000 - 1000,
+                    64 + (i % 8) * 4,
+                    (i * 311) % 2000 - 1000,
+                    (i * 37f) % 360f, 0f));
+            added++;
+        }
+        DimensionalRiftItem.writeExits(stack, data);
+
+        player.sendSystemMessage(Component.translatable(
+                "commands.plumestweaks.riftdebug.added", added, data.size()));
+        openRiftGui(player, stack);
+        return added;
+    }
+
+    private int riftDebugRemove(CommandSourceStack source) throws CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
+        ItemStack stack = findRiftStack(player);
+        if (stack == null) {
+            player.sendSystemMessage(Component.translatable("commands.plumestweaks.riftdebug.no_item"));
+            return 0;
+        }
+
+        com.plumestweaks.component.RiftExitData data = DimensionalRiftItem.readExits(stack);
+        int removed = 0;
+        for (String dimId : java.util.List.copyOf(data.entries().keySet())) {
+            if (dimId.startsWith(DEBUG_DIM_PREFIX)) {
+                data = data.without(dimId);
+                removed++;
+            }
+        }
+        DimensionalRiftItem.writeExits(stack, data);
+        player.sendSystemMessage(Component.translatable(
+                "commands.plumestweaks.riftdebug.removed", removed, data.size()));
+        openRiftGui(player, stack);
+        return removed;
+    }
+
+    private int riftDebugClear(CommandSourceStack source) throws CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
+        ItemStack stack = findRiftStack(player);
+        if (stack == null) {
+            player.sendSystemMessage(Component.translatable("commands.plumestweaks.riftdebug.no_item"));
+            return 0;
+        }
+        DimensionalRiftItem.writeExits(stack, com.plumestweaks.component.RiftExitData.EMPTY);
+        player.sendSystemMessage(Component.translatable("commands.plumestweaks.riftdebug.cleared"));
+        return 1;
+    }
+
+    private int riftDebugList(CommandSourceStack source) throws CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
+        ItemStack stack = findRiftStack(player);
+        if (stack == null) {
+            player.sendSystemMessage(Component.translatable("commands.plumestweaks.riftdebug.no_item"));
+            return 0;
+        }
+        var data = DimensionalRiftItem.readExits(stack);
+        player.sendSystemMessage(Component.translatable(
+                "commands.plumestweaks.riftdebug.list_header", data.size()));
+        for (var entry : data.ordered()) {
+            player.sendSystemMessage(Component.literal(String.format(
+                    " §7- §f%s §8(%d, %d, %d)",
+                    entry.dimensionId(), entry.x(), entry.y(), entry.z())));
+        }
+        return data.size();
+    }
+
+    private int riftDebugGui(CommandSourceStack source) throws CommandSyntaxException {
+        ServerPlayer player = source.getPlayerOrException();
+        ItemStack stack = findRiftStack(player);
+        if (stack == null) {
+            player.sendSystemMessage(Component.translatable("commands.plumestweaks.riftdebug.no_item"));
+            return 0;
+        }
+        openRiftGui(player, stack);
+        return 1;
+    }
+
+    /** 把当前出口点列表发给客户端并打开传送界面 */
+    private static void openRiftGui(ServerPlayer player, ItemStack stack) {
+        PacketDistributor.sendToPlayer(player,
+                new RiftOpenGuiPayload(DimensionalRiftItem.readExits(stack)));
     }
 
     @SubscribeEvent

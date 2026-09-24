@@ -3,6 +3,7 @@ package com.plumestweaks.client;
 import com.plumestweaks.network.ClearItemsConfirmPayload;
 import com.plumestweaks.network.ClearItemsConfirmResponsePayload;
 import com.plumestweaks.network.CompassFoundPayload;
+import com.plumestweaks.network.RiftOpenGuiPayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.resources.language.I18n;
@@ -27,6 +28,18 @@ public class ClientPayloadHandler {
                 CompassFoundPayload.STREAM_CODEC,
                 ClientPayloadHandler::handleCompassFound
         );
+
+        // 裂隙界面：服务端下发出口点列表 → 打开传送选择界面
+        registrar.playToClient(
+                RiftOpenGuiPayload.TYPE,
+                RiftOpenGuiPayload.STREAM_CODEC,
+                ClientPayloadHandler::handleRiftOpenGui
+        );
+    }
+
+    private static void handleRiftOpenGui(RiftOpenGuiPayload payload, IPayloadContext context) {
+        context.enqueueWork(() -> Minecraft.getInstance().setScreen(
+                new RiftTeleportScreen(payload.exits())));
     }
 
     private static void handleCompassFound(CompassFoundPayload payload, IPayloadContext context) {
